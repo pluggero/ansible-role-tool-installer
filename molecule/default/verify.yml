@@ -1,0 +1,234 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: true
+
+  vars_files:
+    - ../../defaults/main.yml
+
+  vars:
+    ansible_user: ansible
+    ansible_become_password: ansible
+
+  tasks:
+    # User-scoped jwt_tool verification
+    - name: Check user tool install directory exists
+      ansible.builtin.stat:
+        path: "{{ tool_installer_bin_user }}"
+      register: tool_installer_user_bin_dir
+
+    - name: Assert user tool bin directory exists
+      ansible.builtin.assert:
+        that:
+          - tool_installer_user_bin_dir.stat.exists
+          - tool_installer_user_bin_dir.stat.isdir
+
+    - name: Check jwt_tool directory exists
+      ansible.builtin.stat:
+        path: "{{ tool_installer_install_dir_user }}/jwt_tool"
+      register: jwt_tool_dir
+
+    - name: Assert jwt_tool directory exists
+      ansible.builtin.assert:
+        that:
+          - jwt_tool_dir.stat.exists
+          - jwt_tool_dir.stat.isdir
+
+    - name: Check jwt_tool venv exists
+      ansible.builtin.stat:
+        path: "{{ tool_installer_install_dir_user }}/jwt_tool/venv"
+      register: jwt_tool_venv
+
+    - name: Assert jwt_tool venv exists
+      ansible.builtin.assert:
+        that:
+          - jwt_tool_venv.stat.exists
+          - jwt_tool_venv.stat.isdir
+
+    - name: Check jwt_tool.py exists
+      ansible.builtin.stat:
+        path: "{{ tool_installer_install_dir_user }}/jwt_tool/jwt_tool.py"
+      register: jwt_tool_script
+
+    - name: Assert jwt_tool.py exists and is executable
+      ansible.builtin.assert:
+        that:
+          - jwt_tool_script.stat.exists
+          - jwt_tool_script.stat.executable
+
+    - name: Check PATH profile script exists
+      ansible.builtin.stat:
+        path: "/etc/profile.d/tools_path.sh"
+      register: tools_path_script
+
+    - name: Assert PATH profile script exists
+      ansible.builtin.assert:
+        that:
+          - tools_path_script.stat.exists
+
+    - name: Check jwt_tool wrapper script exists
+      ansible.builtin.stat:
+        path: "{{ tool_installer_bin_user }}/jwt_tool"
+      register: jwt_tool_wrapper
+
+    - name: Assert jwt_tool wrapper exists and is executable
+      ansible.builtin.assert:
+        that:
+          - jwt_tool_wrapper.stat.exists
+          - jwt_tool_wrapper.stat.executable
+
+    - name: Test jwt_tool command is accessible via PATH
+      ansible.builtin.shell: |
+        . /etc/profile.d/tools_path.sh
+        which jwt_tool
+      register: jwt_tool_which
+      changed_when: false
+
+    - name: Assert jwt_tool is found in PATH
+      ansible.builtin.assert:
+        that:
+          - jwt_tool_which.stdout is match(".*/\\.local/bin/jwt_tool")
+
+    - name: Check version file exists
+      ansible.builtin.stat:
+        path: "{{ tool_installer_version_file_user }}"
+      register: version_file
+
+    - name: Assert version file exists
+      ansible.builtin.assert:
+        that:
+          - version_file.stat.exists
+
+    - name: Read version file
+      ansible.builtin.slurp:
+        src: "{{ tool_installer_version_file_user }}"
+      register: version_file_content
+
+    - name: Parse version file
+      ansible.builtin.set_fact:
+        installed_versions: "{{ version_file_content.content | b64decode | from_json }}"
+
+    - name: Assert jwt_tool is tracked in version file
+      ansible.builtin.assert:
+        that:
+          - "'jwt_tool' in installed_versions"
+          - installed_versions.jwt_tool | length > 0
+
+    - name: Test jwt_tool runs successfully (help command)
+      ansible.builtin.shell: |
+        . /etc/profile.d/tools_path.sh
+        jwt_tool --help 2>&1
+      register: jwt_tool_help
+      changed_when: false
+      failed_when: false
+
+    - name: Assert jwt_tool help output is correct
+      ansible.builtin.assert:
+        that:
+          - "'usage: jwt_tool.py' in jwt_tool_help.stdout"
+          - "'positional arguments:' in jwt_tool_help.stdout"
+          - "'options:' in jwt_tool_help.stdout"
+          - "'Traceback' not in jwt_tool_help.stdout"
+          - "'ModuleNotFoundError' not in jwt_tool_help.stdout"
+          - "'ImportError' not in jwt_tool_help.stdout"
+        fail_msg: "jwt_tool failed to execute properly"
+
+    # System-scoped profi verification
+    - name: Check system tool install directory exists
+      ansible.builtin.stat:
+        path: "{{ tool_installer_install_dir_system }}"
+      register: tool_installer_system_dir
+
+    - name: Assert system tool directory exists
+      ansible.builtin.assert:
+        that:
+          - tool_installer_system_dir.stat.exists
+          - tool_installer_system_dir.stat.isdir
+
+    - name: Check profi directory exists
+      ansible.builtin.stat:
+        path: "{{ tool_installer_install_dir_system }}/profi"
+      register: profi_dir
+
+    - name: Assert profi directory exists
+      ansible.builtin.assert:
+        that:
+          - profi_dir.stat.exists
+          - profi_dir.stat.isdir
+
+    - name: Check profi venv exists
+      ansible.builtin.stat:
+        path: "{{ tool_installer_install_dir_system }}/profi/venv"
+      register: profi_venv
+
+    - name: Assert profi venv exists
+      ansible.builtin.assert:
+        that:
+          - profi_venv.stat.exists
+          - profi_venv.stat.isdir
+
+    - name: Check profi executable exists in system bin
+      ansible.builtin.stat:
+        path: "{{ tool_installer_bin_system }}/profi"
+      register: profi_wrapper
+
+    - name: Assert profi wrapper exists and is executable
+      ansible.builtin.assert:
+        that:
+          - profi_wrapper.stat.exists
+          - profi_wrapper.stat.executable
+
+    - name: Test profi command is accessible via PATH
+      ansible.builtin.shell: |
+        which profi
+      register: profi_which
+      changed_when: false
+
+    - name: Assert profi is found in PATH
+      ansible.builtin.assert:
+        that:
+          - profi_which.stdout is match("{{ tool_installer_bin_system }}/profi")
+
+    - name: Check system version file exists
+      ansible.builtin.stat:
+        path: "{{ tool_installer_version_file_system }}"
+      register: system_version_file
+
+    - name: Assert system version file exists
+      ansible.builtin.assert:
+        that:
+          - system_version_file.stat.exists
+
+    - name: Read system version file
+      ansible.builtin.slurp:
+        src: "{{ tool_installer_version_file_system }}"
+      register: system_version_file_content
+
+    - name: Parse system version file
+      ansible.builtin.set_fact:
+        system_installed_versions: "{{ system_version_file_content.content | b64decode | from_json }}"
+
+    - name: Assert profi is tracked in system version file
+      ansible.builtin.assert:
+        that:
+          - "'profi' in system_installed_versions"
+          - system_installed_versions.profi | length > 0
+
+    - name: Test profi runs successfully (help command)
+      ansible.builtin.shell: |
+        profi --help 2>&1
+      register: profi_help
+      changed_when: false
+      failed_when: false
+
+    - name: Assert profi help output is correct
+      ansible.builtin.assert:
+        that:
+          - "'Usage: profi' in profi_help.stdout"
+          - "'Options:' in profi_help.stdout"
+          - "'--template' in profi_help.stdout"
+          - "'--help' in profi_help.stdout"
+          - "'Traceback' not in profi_help.stdout"
+          - "'ModuleNotFoundError' not in profi_help.stdout"
+          - "'ImportError' not in profi_help.stdout"
+        fail_msg: "profi failed to execute properly"

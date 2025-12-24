@@ -1,0 +1,42 @@
+---
+- name: Ensure tool install directory exists (user)
+  ansible.builtin.file:
+    path: "{{ tool_installer_bin_user }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+
+- name: Ensure tool base directory exists (user)
+  ansible.builtin.file:
+    path: "{{ tool_installer_install_dir_user }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+
+- name: Add tool path script in /etc/profile.d
+  ansible.builtin.copy:
+    dest: /etc/profile.d/tools_path.sh
+    content: |
+      #!/bin/sh
+      # Add tools bin to the PATH for all users
+      if [ -d "$HOME/.local/bin" ]; then
+          PATH="$HOME/.local/bin:$PATH"
+      fi
+    mode: "0644"
+    owner: root
+    group: root
+  become: true
+
+- name: Install user-scoped tools using common logic
+  ansible.builtin.include_tasks: noauto_install_tools_common.yml
+  vars:
+    tool_installer_scope_tools: "{{ tool_installer_tools_user }}"
+    tool_installer_scope_install_dir: "{{ tool_installer_install_dir_user }}"
+    tool_installer_scope_bin_dir: "{{ tool_installer_bin_user }}"
+    tool_installer_scope_version_file: "{{ tool_installer_version_file_user }}"
+    tool_installer_scope_owner: "{{ ansible_user }}"
+    tool_installer_scope_group: "{{ ansible_user }}"
+    tool_installer_scope_become: false
+    tool_installer_scope_name: "user"

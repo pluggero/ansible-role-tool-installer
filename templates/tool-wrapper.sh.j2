@@ -1,0 +1,13 @@
+#!/bin/bash
+# Auto-generated wrapper script for {{ executable.name }} (from tool: {{ tool.name }})
+# Install scope: {{ tool.install_scope | default('user') }}
+
+{% if tool.python_venv | default(false) %}
+source "{{ tool_installer_tool_dir }}/venv/bin/activate"
+{% endif %}
+
+{% if executable.type == 'python' %}
+exec python3 "{{ tool_installer_tool_dir }}/{{ executable.src }}" "$@"
+{% else %}
+exec "{{ tool_installer_tool_dir }}/{{ executable.src }}" "$@"
+{% endif %}

@@ -1,0 +1,93 @@
+---
+name: CI
+"on":
+  pull_request:
+  schedule:
+    - cron: "0 7 * * 5"
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ansible-roles-ci
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: "pluggero.tool_installer"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the codebase
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        with:
+          path: "pluggero.tool_installer"
+
+      - name: Set up Python 3
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install test dependencies
+        run: pip3 install -r requirements.txt
+
+      - name: Run yamllint
+        run: |
+          yamllint .
+
+      - name: Install molecule role dependencies
+        run: ansible-galaxy install -r molecule/default/requirements.yml
+
+      - name: Run ansible-lint
+        uses: ansible/ansible-lint@43e758bad47344f1ce7b699c0020299f486a8026 # v25.11.0
+        with:
+          working_directory: "pluggero.tool_installer"
+          requirements_file: "requirements.yml"
+
+  molecule:
+    name: Molecule
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      matrix:
+        distro:
+          - debian12
+          - archlinux
+          - alpinelinux
+
+    steps:
+      - name: Check out the codebase
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
+        with:
+          path: "pluggero.tool_installer"
+
+      - name: Set up Python 3
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install test dependencies
+        run: pip3 install -r requirements.txt
+
+      - name: Run Molecule tests
+        run: molecule test
+        env:
+          PY_COLORS: "1"
+          ANSIBLE_FORCE_COLOR: "1"
+          MOLECULE_DISTRO: ${{ matrix.distro }}
+
+  status-check:
+    name: Status Check
+    runs-on: ubuntu-latest
+    needs: [lint, molecule]
+    if: always()
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Check all jobs passed
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1

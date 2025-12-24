@@ -1,0 +1,32 @@
+---
+# User-specific paths
+tool_installer_install_dir_user: "{{ ansible_env.HOME }}/.local/tools"
+tool_installer_bin_user: "{{ ansible_env.HOME }}/.local/bin"
+tool_installer_version_file_user: "{{ tool_installer_bin_user }}/.tool_installer_versions"
+
+# System-wide paths
+tool_installer_install_dir_system: "/opt/tools"
+tool_installer_bin_system: "/usr/local/bin"
+tool_installer_version_file_system: "/opt/tools/.tool_installer_versions"
+
+tool_installer_force_install: false
+
+tool_installer_tools: []
+  # - name: "jwt_tool"
+  #   url: "https://github.com/ticarpi/jwt_tool"  # Git repository or direct download URL
+  #   version: "main"  # For git: branch, tag, or commit SHA. For downloads: version identifier
+  #   install_scope: "user"  # "user" (default) or "system"
+  #   python_venv: true  # Create Python venv in tool directory
+  #   pre_install_commands:  # Run before install (with venv activated if python_venv: true)
+  #     - "pip install -r requirements.txt"
+  #   install_commands: []  # Main installation commands (with venv activated if python_venv: true)
+  #   post_install_commands: []  # Run after install (with venv activated if python_venv: true)
+  #   executables:  # List of executables to make available in PATH
+  #     - src: "jwt_tool.py"  # Path relative to tool directory
+  #       name: "jwt_tool"  # Name in $PATH
+  #       type: "python"  # "python", "binary", or "script"
+  #   dependency_packages: {}  # OS-specific packages to install (use empty dict {} if none)
+  #     # Debian: []
+  #     # Alpine: []
+  #     # Archlinux: []
+  #   dependency_roles: []  # Galaxy roles required (e.g., ["pluggero.git", "pluggero.python"])

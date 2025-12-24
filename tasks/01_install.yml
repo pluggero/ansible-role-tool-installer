@@ -1,0 +1,57 @@
+---
+- name: Install tool dependencies
+  block:
+    - name: Collect tool dependencies for current OS
+      ansible.builtin.set_fact:
+        tool_installer_dep_pkgs: "{{ tool_installer_tools | selectattr('dependency_packages', 'defined') | map(attribute='dependency_packages') | map('dict2items') | flatten | selectattr('key', 'equalto', ansible_os_family) | map(attribute='value') | flatten | unique | list }}"
+
+    - name: Install OS-specific tool dependencies
+      ansible.builtin.include_tasks: "{{ task_file }}"
+      with_first_found:
+        - "{{ role_path }}/tasks/noauto_install_tools_dep_{{ ansible_distribution }}-{{ ansible_distribution_major_version }}.yml"
+        - "{{ role_path }}/tasks/noauto_install_tools_dep_{{ ansible_os_family }}-{{ ansible_distribution_major_version }}.yml"
+        - "{{ role_path }}/tasks/noauto_install_tools_dep_{{ ansible_distribution }}.yml"
+        - "{{ role_path }}/tasks/noauto_install_tools_dep_{{ ansible_os_family }}.yml"
+        - "{{ role_path }}/tasks/noauto_install_tools_dep_{{ ansible_lsb.id }}.yml"
+      loop_control:
+        loop_var: task_file
+      when: tool_installer_dep_pkgs is defined and tool_installer_dep_pkgs | length > 0
+
+- name: Install dependency roles
+  block:
+    - name: Collect required dependency roles
+      ansible.builtin.set_fact:
+        tool_installer_dep_roles: "{{ tool_installer_tools | selectattr('dependency_roles', 'defined') | map(attribute='dependency_roles') | flatten | unique | list }}"
+
+    - name: Execute dependency roles
+      ansible.builtin.include_role:
+        name: "{{ role_name }}"
+      loop: "{{ tool_installer_dep_roles }}"
+      loop_control:
+        loop_var: role_name
+      when: tool_installer_dep_roles is defined and tool_installer_dep_roles | length > 0
+
+- name: Normalize tools with defaults
+  ansible.builtin.set_fact:
+    tool_installer_tools_normalized: >-
+      {%- set normalized = [] -%}
+      {%- for tool in tool_installer_tools -%}
+        {%- set tool_with_defaults = tool | combine({
+            'install_scope': tool.install_scope | default('user')
+        }) -%}
+        {%- set _ = normalized.append(tool_with_defaults) -%}
+      {%- endfor -%}
+      {{ normalized }}
+
+- name: Split tools by scope
+  ansible.builtin.set_fact:
+    tool_installer_tools_user: "{{ tool_installer_tools_normalized | selectattr('install_scope', 'equalto', 'user') | list }}"
+    tool_installer_tools_system: "{{ tool_installer_tools_normalized | selectattr('install_scope', 'equalto', 'system') | list }}"
+
+- name: Install user-scoped git tools
+  ansible.builtin.include_tasks: noauto_install_tools_user.yml
+  when: tool_installer_tools_user | length > 0
+
+- name: Install system-scoped git tools
+  ansible.builtin.include_tasks: noauto_install_tools_system.yml
+  when: tool_installer_tools_system | length > 0

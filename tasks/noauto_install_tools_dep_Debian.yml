@@ -1,0 +1,23 @@
+---
+- name: Ensure we are using apt
+  ansible.builtin.fail:
+    msg: "This role only supports {{ ansible_os_family }} systems that use apt as a package manager."
+  when: ansible_pkg_mgr != "apt"
+
+- name: Install tool dependencies via apt
+  when: tool_installer_dep_pkgs is defined and tool_installer_dep_pkgs | length > 0
+  block:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      become: true
+
+    - name: Ensure tool dependencies are installed
+      ansible.builtin.apt:
+        name: "{{ package }}"
+        state: present
+      loop: "{{ tool_installer_dep_pkgs }}"
+      loop_control:
+        loop_var: package
+      become: true

@@ -1,0 +1,21 @@
+---
+- name: Ensure tool base directory exists (system)
+  ansible.builtin.file:
+    path: "{{ tool_installer_install_dir_system }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  become: true
+
+- name: Install system-scoped tools using common logic
+  ansible.builtin.include_tasks: noauto_install_tools_common.yml
+  vars:
+    tool_installer_scope_tools: "{{ tool_installer_tools_system }}"
+    tool_installer_scope_install_dir: "{{ tool_installer_install_dir_system }}"
+    tool_installer_scope_bin_dir: "{{ tool_installer_bin_system }}"
+    tool_installer_scope_version_file: "{{ tool_installer_version_file_system }}"
+    tool_installer_scope_owner: root
+    tool_installer_scope_group: root
+    tool_installer_scope_become: true
+    tool_installer_scope_name: "system"

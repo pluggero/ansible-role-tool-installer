@@ -1,0 +1,158 @@
+---
+# Common logic for installing tools (both user and system scope)
+# Requires the following variables to be set by the caller:
+#   - tool_installer_scope_tools: List of tools to install
+#   - tool_installer_scope_install_dir: Directory for tool installations
+#   - tool_installer_scope_bin_dir: Directory for wrapper scripts
+#   - tool_installer_scope_version_file: Path to version tracking file
+#   - tool_installer_scope_owner: Owner for created files/directories
+#   - tool_installer_scope_group: Group for created files/directories
+#   - tool_installer_scope_become: Boolean - whether to use privilege escalation
+#   - tool_installer_scope_name: String - "user" or "system" (for variable naming)
+
+- name: Check if version file exists - {{ tool_installer_scope_name }}
+  ansible.builtin.stat:
+    path: "{{ tool_installer_scope_version_file }}"
+  register: tool_installer_version_file_stat
+  become: "{{ tool_installer_scope_become }}"
+
+- name: Read tool version file - {{ tool_installer_scope_name }}
+  ansible.builtin.slurp:
+    src: "{{ tool_installer_scope_version_file }}"
+  register: tool_installer_version_file_content
+  when: tool_installer_version_file_stat.stat.exists
+  become: "{{ tool_installer_scope_become }}"
+
+- name: Parse tool versions - {{ tool_installer_scope_name }}
+  ansible.builtin.set_fact:
+    "tool_installer_{{ tool_installer_scope_name }}_installed_versions": "{{ (tool_installer_version_file_content.content | b64decode | from_json) if tool_installer_version_file_stat.stat.exists else {} }}"
+
+- name: Determine which tools need updates - {{ tool_installer_scope_name }}
+  ansible.builtin.set_fact:
+    "tool_installer_{{ tool_installer_scope_name }}_tools_to_update": >-
+      {%- set tools_to_update = [] -%}
+      {%- set installed_versions = lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_installed_versions') -%}
+      {%- for tool in tool_installer_scope_tools -%}
+        {%- set version_key = tool.name -%}
+        {%- if tool_installer_force_install or version_key not in installed_versions or installed_versions[version_key] != tool.version -%}
+          {%- set _ = tools_to_update.append(tool) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ tools_to_update }}
+
+- name: Create tool directories - {{ tool_installer_scope_name }}
+  ansible.builtin.file:
+    path: "{{ tool_installer_scope_install_dir }}/{{ tool.name }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ tool_installer_scope_owner }}"
+    group: "{{ tool_installer_scope_group }}"
+  loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') }}"
+  loop_control:
+    loop_var: tool
+  become: "{{ tool_installer_scope_become }}"
+
+- name: Clone/update repositories - {{ tool_installer_scope_name }}
+  ansible.builtin.git:
+    repo: "{{ tool.url }}"
+    dest: "{{ tool_installer_scope_install_dir }}/{{ tool.name }}"
+    version: "{{ tool.version }}"
+    force: true
+  loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') }}"
+  loop_control:
+    loop_var: tool
+  become: "{{ tool_installer_scope_become }}"
+
+- name: Create Python venvs - {{ tool_installer_scope_name }}
+  ansible.builtin.command:
+    cmd: "python3 -m venv {{ tool_installer_scope_install_dir }}/{{ tool.name }}/venv"
+    creates: "{{ tool_installer_scope_install_dir }}/{{ tool.name }}/venv/bin/python"
+  loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') }}"
+  loop_control:
+    loop_var: tool
+  when: tool.python_venv | default(false)
+  become: "{{ tool_installer_scope_become }}"
+
+- name: Run pre-install commands - {{ tool_installer_scope_name }}
+  ansible.builtin.shell:
+    cmd: |
+      {% if tool.python_venv | default(false) %}
+      . {{ tool_installer_scope_install_dir }}/{{ tool.name }}/venv/bin/activate
+      {% endif %}
+      {{ command }}
+    chdir: "{{ tool_installer_scope_install_dir }}/{{ tool.name }}"
+  loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') | subelements('pre_install_commands', skip_missing=True) }}"
+  loop_control:
+    loop_var: tool_command
+  vars:
+    tool: "{{ tool_command[0] }}"
+    command: "{{ tool_command[1] }}"
+  changed_when: true
+  become: "{{ tool_installer_scope_become }}"
+
+- name: Run install commands - {{ tool_installer_scope_name }}
+  ansible.builtin.shell:
+    cmd: |
+      {% if tool.python_venv | default(false) %}
+      . {{ tool_installer_scope_install_dir }}/{{ tool.name }}/venv/bin/activate
+      {% endif %}
+      {{ command }}
+    chdir: "{{ tool_installer_scope_install_dir }}/{{ tool.name }}"
+  loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') | subelements('install_commands', skip_missing=True) }}"
+  loop_control:
+    loop_var: tool_command
+  vars:
+    tool: "{{ tool_command[0] }}"
+    command: "{{ tool_command[1] }}"
+  changed_when: true
+  become: "{{ tool_installer_scope_become }}"
+
+- name: Run post-install commands - {{ tool_installer_scope_name }}
+  ansible.builtin.shell:
+    cmd: |
+      {% if tool.python_venv | default(false) %}
+      . {{ tool_installer_scope_install_dir }}/{{ tool.name }}/venv/bin/activate
+      {% endif %}
+      {{ command }}
+    chdir: "{{ tool_installer_scope_install_dir }}/{{ tool.name }}"
+  loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') | subelements('post_install_commands', skip_missing=True) }}"
+  loop_control:
+    loop_var: tool_command
+  vars:
+    tool: "{{ tool_command[0] }}"
+    command: "{{ tool_command[1] }}"
+  changed_when: true
+  become: "{{ tool_installer_scope_become }}"
+
+- name: Create wrapper scripts for tool binaries - {{ tool_installer_scope_name }}
+  ansible.builtin.template:
+    src: tool-wrapper.sh.j2
+    dest: "{{ tool_installer_scope_bin_dir }}/{{ executable.name }}"
+    mode: "0755"
+    owner: "{{ tool_installer_scope_owner }}"
+    group: "{{ tool_installer_scope_group }}"
+  loop: "{{ tool_installer_scope_tools | subelements('executables') }}"
+  loop_control:
+    loop_var: tool_executable
+  vars:
+    tool: "{{ tool_executable[0] }}"
+    executable: "{{ tool_executable[1] }}"
+    tool_installer_tool_dir: "{{ tool_installer_scope_install_dir }}/{{ tool.name }}"
+  become: "{{ tool_installer_scope_become }}"
+
+- name: Update installed versions - {{ tool_installer_scope_name }}
+  ansible.builtin.set_fact:
+    "tool_installer_{{ tool_installer_scope_name }}_installed_versions": "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_installed_versions') | combine({tool.name: tool.version}) }}"
+  loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') }}"
+  loop_control:
+    loop_var: tool
+    index_var: index
+
+- name: Update tool version file - {{ tool_installer_scope_name }}
+  ansible.builtin.copy:
+    content: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_installed_versions') | to_nice_json }}"
+    dest: "{{ tool_installer_scope_version_file }}"
+    mode: "0644"
+    owner: "{{ tool_installer_scope_owner }}"
+    group: "{{ tool_installer_scope_group }}"
+  become: "{{ tool_installer_scope_become }}"

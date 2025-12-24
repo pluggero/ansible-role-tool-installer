@@ -1,0 +1,23 @@
+---
+- name: Converge
+  hosts: all
+
+  vars_files:
+    - ../../vars/molecule.yml
+
+  vars:
+    ansible_user: ansible
+    ansible_become_password: ansible
+    python_install_method: "package"
+    rofi_install_method: "package"
+
+  pre_tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+      become: true
+
+  roles:
+    - role: pluggero.tool_installer

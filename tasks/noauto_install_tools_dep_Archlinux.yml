@@ -1,0 +1,22 @@
+---
+- name: Ensure we are using pacman
+  ansible.builtin.fail:
+    msg: "This role only supports {{ ansible_os_family }} systems that use pacman as a package manager."
+  when: ansible_pkg_mgr != "pacman"
+
+- name: Install tool dependencies via pacman
+  when: tool_installer_dep_pkgs is defined and tool_installer_dep_pkgs | length > 0
+  block:
+    - name: Update pacman cache
+      community.general.pacman:
+        update_cache: true
+      become: true
+
+    - name: Ensure tool dependencies are installed
+      community.general.pacman:
+        name: "{{ package }}"
+        state: present
+      loop: "{{ tool_installer_dep_pkgs }}"
+      loop_control:
+        loop_var: package
+      become: true
