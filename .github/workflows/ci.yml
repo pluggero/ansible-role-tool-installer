@@ -4,9 +4,6 @@ name: CI
   pull_request:
   schedule:
     - cron: "0 7 * * 5"
-  push:
-    branches:
-      - main
 
 concurrency:
   group: ansible-roles-ci
