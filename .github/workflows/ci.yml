@@ -39,7 +39,7 @@ jobs:
         run: ansible-galaxy install -r molecule/default/requirements.yml
 
       - name: Run ansible-lint
-        uses: ansible/ansible-lint@a9f8a4e21be85461fdc3d0f492a89e365bf4fd72 # v26.1.0
+        uses: ansible/ansible-lint@7f6abc5ef97d0fb043a0f3d416dfbc74399fbda0 # v26.1.1
         with:
           working_directory: "pluggero.tool_installer"
           requirements_file: "requirements.yml"
