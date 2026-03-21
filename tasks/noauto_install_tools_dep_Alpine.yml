@@ -7,11 +7,16 @@
 - name: Install tool dependencies via apk
   when: tool_installer_dep_pkgs is defined and tool_installer_dep_pkgs | length > 0
   block:
+    - name: Update apk cache
+      community.general.apk:
+        update_cache: true
+      changed_when: false # The apk module currently does not support cache_valid_time.
+      become: true
+
     - name: Ensure tool dependencies are installed
       community.general.apk:
         name: "{{ package }}"
         state: present
-        no_cache: true
       loop: "{{ tool_installer_dep_pkgs }}"
       loop_control:
         loop_var: package
