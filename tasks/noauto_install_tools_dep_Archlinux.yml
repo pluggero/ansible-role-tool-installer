@@ -10,6 +10,7 @@
     - name: Update pacman cache
       community.general.pacman:
         update_cache: true
+      changed_when: false # The pacman module currently does not support cache_valid_time.
       become: true
 
     - name: Ensure tool dependencies are installed
