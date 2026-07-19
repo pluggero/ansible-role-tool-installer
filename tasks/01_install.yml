@@ -42,11 +42,13 @@
         {%- set _ = normalized.append(tool_with_defaults) -%}
       {%- endfor -%}
       {{ normalized }}
+  no_log: true
 
 - name: Split tools by scope
   ansible.builtin.set_fact:
     tool_installer_tools_user: "{{ tool_installer_tools_normalized | selectattr('install_scope', 'equalto', 'user') | list }}"
     tool_installer_tools_system: "{{ tool_installer_tools_normalized | selectattr('install_scope', 'equalto', 'system') | list }}"
+  no_log: true
 
 - name: Install user-scoped git tools
   ansible.builtin.include_tasks: noauto_install_tools_user.yml

@@ -10,6 +10,41 @@
 #   - tool_installer_scope_become: Boolean - whether to use privilege escalation
 #   - tool_installer_scope_name: String - "user" or "system" (for variable naming)
 
+- name: Assert dependency_pip_packages entries require python_venv - {{ tool_installer_scope_name }}
+  ansible.builtin.assert:
+    that:
+      - tool.python_venv | default(false)
+    fail_msg: >-
+      Tool "{{ tool.name }}" defines dependency_pip_packages but not python_venv: true.
+      dependency_pip_packages installs into "<tool_dir>/venv", which is only created when
+      python_venv: true is set.
+  loop: "{{ tool_installer_scope_tools }}"
+  loop_control:
+    loop_var: tool
+    label: "{{ tool.name }}"
+  when: tool.dependency_pip_packages | default([]) | length > 0
+  no_log: true
+
+- name: Assert dependency_pip_packages mapping entries are valid - {{ tool_installer_scope_name }}
+  ansible.builtin.assert:
+    that:
+      - dep_pkg[1].requirements_file is defined
+      - dep_pkg[1].requirements_file | length > 0
+      - dep_pkg[1].tool_installer_pip_index_username is not defined or dep_pkg[1].tool_installer_pip_index_url is defined
+      - dep_pkg[1].tool_installer_pip_index_username is not defined or dep_pkg[1].tool_installer_pip_index_password is defined
+    fail_msg: >-
+      Tool "{{ dep_pkg[0].name }}" has an invalid dependency_pip_packages mapping entry
+      (requirements_file={{ dep_pkg[1].requirements_file | default('undefined') }}). Dict entries must set
+      a non-empty 'requirements_file' (path relative to the tool's cloned repo dir), and if
+      tool_installer_pip_index_username is set, both tool_installer_pip_index_url and
+      tool_installer_pip_index_password must also be set.
+  loop: "{{ tool_installer_scope_tools | subelements('dependency_pip_packages', skip_missing=True) }}"
+  loop_control:
+    loop_var: dep_pkg
+    label: "{{ dep_pkg[0].name }}"
+  when: dep_pkg[1] is mapping
+  no_log: true
+
 - name: Check if version file exists - {{ tool_installer_scope_name }}
   ansible.builtin.stat:
     path: "{{ tool_installer_scope_version_file }}"
@@ -39,6 +74,7 @@
         {%- endif -%}
       {%- endfor -%}
       {{ tools_to_update }}
+  no_log: true
 
 - name: Create tool directories - {{ tool_installer_scope_name }}
   ansible.builtin.file:
@@ -50,18 +86,31 @@
   loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') }}"
   loop_control:
     loop_var: tool
+    label: "{{ tool.name }}"
   become: "{{ tool_installer_scope_become }}"
+  no_log: true
 
 - name: Clone/update repositories - {{ tool_installer_scope_name }}
   ansible.builtin.git:
-    repo: "{{ tool.url }}"
+    repo: "{{ tool_installer_git_repo_url }}"
     dest: "{{ tool_installer_scope_install_dir }}/{{ tool.name }}"
     version: "{{ tool.version }}"
     force: true
+    key_file: "{{ tool.tool_installer_git_ssh_key_file | default(omit) }}"
+    accept_hostkey: "{{ tool.tool_installer_git_accept_hostkey | default(omit) }}"
   loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') }}"
   loop_control:
     loop_var: tool
+    label: "{{ tool.name }}"
+  vars:
+    tool_installer_git_repo_url: >-
+      {%- if tool.tool_installer_git_username is defined -%}
+      {{ tool.url | regex_replace('^(https?://)', '\1' ~ (tool.tool_installer_git_username | urlencode | replace('/', '%2F')) ~ ':' ~ (tool.tool_installer_git_password | urlencode | replace('/', '%2F')) ~ '@') }}
+      {%- else -%}
+      {{ tool.url }}
+      {%- endif -%}
   become: "{{ tool_installer_scope_become }}"
+  no_log: true
 
 - name: Create Python venvs - {{ tool_installer_scope_name }}
   ansible.builtin.command:
@@ -70,8 +119,53 @@
   loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') }}"
   loop_control:
     loop_var: tool
+    label: "{{ tool.name }}"
   when: tool.python_venv | default(false)
   become: "{{ tool_installer_scope_become }}"
+  no_log: true
+
+- name: Install dependency_pip_packages - plain package specs - {{ tool_installer_scope_name }}
+  ansible.builtin.pip:
+    name: "{{ dep_pkg[1] }}"
+    virtualenv: "{{ tool_installer_scope_install_dir }}/{{ dep_pkg[0].name }}/venv"
+  loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') | subelements('dependency_pip_packages', skip_missing=True) }}"
+  loop_control:
+    loop_var: dep_pkg
+    label: "{{ dep_pkg[0].name }}/{{ dep_pkg[1] }}"
+  when: dep_pkg[1] is string
+  become: "{{ tool_installer_scope_become }}"
+  environment:
+    PIP_NO_INPUT: "1"
+    PIP_DEFAULT_TIMEOUT: "30"
+  no_log: true
+
+- name: Install dependency_pip_packages - requirements file (no index credentials) - {{ tool_installer_scope_name }}
+  ansible.builtin.pip:
+    requirements: "{{ tool_installer_scope_install_dir }}/{{ dep_pkg[0].name }}/{{ dep_pkg[1].requirements_file }}"
+    virtualenv: "{{ tool_installer_scope_install_dir }}/{{ dep_pkg[0].name }}/venv"
+    extra_args: >-
+      {{ ('--index-url ' ~ dep_pkg[1].tool_installer_pip_index_url)
+         if dep_pkg[1].tool_installer_pip_index_url is defined else omit }}
+  loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') | subelements('dependency_pip_packages', skip_missing=True) }}"
+  loop_control:
+    loop_var: dep_pkg
+    label: "{{ dep_pkg[0].name }}/{{ dep_pkg[1].requirements_file }}"
+  when: dep_pkg[1] is mapping and dep_pkg[1].tool_installer_pip_index_username is not defined
+  become: "{{ tool_installer_scope_become }}"
+  environment:
+    PIP_NO_INPUT: "1"
+    PIP_DEFAULT_TIMEOUT: "30"
+  no_log: true
+
+- name: Install dependency_pip_packages - requirements file (authenticated index) - {{ tool_installer_scope_name }}
+  ansible.builtin.include_tasks:
+    file: noauto_install_dependency_pip_authenticated.yml
+  loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') | subelements('dependency_pip_packages', skip_missing=True) }}"
+  loop_control:
+    loop_var: dep_pkg
+    label: "{{ dep_pkg[0].name }}/{{ dep_pkg[1].requirements_file }}"
+  when: dep_pkg[1] is mapping and dep_pkg[1].tool_installer_pip_index_username is defined
+  no_log: true
 
 - name: Run pre-install commands - {{ tool_installer_scope_name }}
   ansible.builtin.shell:
@@ -84,11 +178,13 @@
   loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') | subelements('pre_install_commands', skip_missing=True) }}"
   loop_control:
     loop_var: tool_command
+    label: "{{ tool_command[0].name }}"
   vars:
     tool: "{{ tool_command[0] }}"
     command: "{{ tool_command[1] }}"
   changed_when: true
   become: "{{ tool_installer_scope_become }}"
+  no_log: true
 
 - name: Run install commands - {{ tool_installer_scope_name }}
   ansible.builtin.shell:
@@ -101,11 +197,13 @@
   loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') | subelements('install_commands', skip_missing=True) }}"
   loop_control:
     loop_var: tool_command
+    label: "{{ tool_command[0].name }}"
   vars:
     tool: "{{ tool_command[0] }}"
     command: "{{ tool_command[1] }}"
   changed_when: true
   become: "{{ tool_installer_scope_become }}"
+  no_log: true
 
 - name: Run post-install commands - {{ tool_installer_scope_name }}
   ansible.builtin.shell:
@@ -118,11 +216,13 @@
   loop: "{{ lookup('vars', 'tool_installer_' ~ tool_installer_scope_name ~ '_tools_to_update') | subelements('post_install_commands', skip_missing=True) }}"
   loop_control:
     loop_var: tool_command
+    label: "{{ tool_command[0].name }}"
   vars:
     tool: "{{ tool_command[0] }}"
     command: "{{ tool_command[1] }}"
   changed_when: true
   become: "{{ tool_installer_scope_become }}"
+  no_log: true
 
 - name: Create wrapper scripts for tool binaries - {{ tool_installer_scope_name }}
   ansible.builtin.template:
@@ -134,11 +234,13 @@
   loop: "{{ tool_installer_scope_tools | subelements('executables') }}"
   loop_control:
     loop_var: tool_executable
+    label: "{{ tool_executable[0].name }}/{{ tool_executable[1].name }}"
   vars:
     tool: "{{ tool_executable[0] }}"
     executable: "{{ tool_executable[1] }}"
     tool_installer_tool_dir: "{{ tool_installer_scope_install_dir }}/{{ tool.name }}"
   become: "{{ tool_installer_scope_become }}"
+  no_log: true
 
 - name: Update installed versions - {{ tool_installer_scope_name }}
   ansible.builtin.set_fact:
@@ -147,6 +249,8 @@
   loop_control:
     loop_var: tool
     index_var: index
+    label: "{{ tool.name }}"
+  no_log: true
 
 - name: Update tool version file - {{ tool_installer_scope_name }}
   ansible.builtin.copy:
