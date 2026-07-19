@@ -16,9 +16,19 @@ tool_installer_tools: []
   #   url: "https://github.com/ticarpi/jwt_tool"  # Git repository or direct download URL
   #   version: "main"  # For git: branch, tag, or commit SHA. For downloads: version identifier
   #   install_scope: "user"  # "user" (default) or "system"
+  #   tool_installer_git_username: "oauth2"  # optional: HTTPS auth username (e.g. "oauth2" for a GitLab PAT). Requires an http(s):// url
+  #   tool_installer_git_password: "{{ vault_tool_installer_jwt_tool_git_password }}"  # optional: HTTPS auth token/password. NEVER hardcode - vault only
+  #   tool_installer_git_ssh_key_file: "/etc/tool_installer/deploy_keys/jwt_tool"  # optional: SSH deploy key path (target host). Alternative to username/password for ssh:// or git@host:path urls
+  #   tool_installer_git_accept_hostkey: false  # optional: accept unknown SSH host keys (default false)
   #   python_venv: true  # Create Python venv in tool directory
+  #   dependency_pip_packages:  # optional: pip packages to install into the tool's venv (requires python_venv: true)
+  #     - "requests==2.31.0"  # plain string: pip package spec, no auth possible
+  #     - requirements_file: "requirements.txt"  # path relative to the tool's cloned repo dir
+  #       tool_installer_pip_index_url: "https://pypi.example.com/simple"  # optional: private/custom index URL
+  #       tool_installer_pip_index_username: "deploy"  # optional: index auth username. Requires tool_installer_pip_index_url
+  #       tool_installer_pip_index_password: "{{ vault_tool_installer_jwt_tool_pip_index_password }}"  # optional: index auth password. NEVER hardcode - vault only
   #   pre_install_commands:  # Run before install (with venv activated if python_venv: true)
-  #     - "pip install -r requirements.txt"
+  #     - "chmod +x setup.sh"
   #   install_commands: []  # Main installation commands (with venv activated if python_venv: true)
   #   post_install_commands: []  # Run after install (with venv activated if python_venv: true)
   #   executables:  # List of executables to make available in PATH

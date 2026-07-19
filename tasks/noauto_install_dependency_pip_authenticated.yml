@@ -1,0 +1,50 @@
+---
+# Installs a single dependency_pip_packages requirements-file entry from an authenticated index.
+# Requires the following variables to be set by the caller (see noauto_install_tools_common.yml):
+#   - dep_pkg: subelements tuple (tool, dependency_pip_packages entry) - entry must be a mapping
+#              with tool_installer_pip_index_username defined
+#   - tool_installer_scope_install_dir / tool_installer_scope_become / tool_installer_scope_name
+#
+# Uses a temporary .netrc file rather than embedding credentials in --index-url: pip lets a
+# requirements file's own "-i" line silently win over a CLI --index-url, which would otherwise
+# drop the injected credentials. netrc auth is applied by pip's HTTP layer per-host, so it works
+# regardless of which "-i" value pip ends up using.
+
+- name: Install authenticated pip requirements file - {{ tool_installer_scope_name }}
+  block:
+    - name: Create temporary netrc file for authenticated pip index - {{ tool_installer_scope_name }}
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .netrc
+      register: tool_installer_pip_netrc_file
+      become: "{{ tool_installer_scope_become }}"
+
+    - name: Write netrc credentials for authenticated pip index - {{ tool_installer_scope_name }}
+      ansible.builtin.copy:
+        dest: "{{ tool_installer_pip_netrc_file.path }}"
+        content: |
+          machine {{ dep_pkg[1].tool_installer_pip_index_url | urlsplit('hostname') }}
+          login {{ dep_pkg[1].tool_installer_pip_index_username }}
+          password {{ dep_pkg[1].tool_installer_pip_index_password }}
+        mode: "0600"
+      become: "{{ tool_installer_scope_become }}"
+      no_log: true
+
+    - name: Install dependency_pip_packages - requirements file (authenticated index) - {{ tool_installer_scope_name }}
+      ansible.builtin.pip:
+        requirements: "{{ tool_installer_scope_install_dir }}/{{ dep_pkg[0].name }}/{{ dep_pkg[1].requirements_file }}"
+        virtualenv: "{{ tool_installer_scope_install_dir }}/{{ dep_pkg[0].name }}/venv"
+        extra_args: "--index-url {{ dep_pkg[1].tool_installer_pip_index_url }}"
+      environment:
+        NETRC: "{{ tool_installer_pip_netrc_file.path }}"
+        PIP_NO_INPUT: "1"
+        PIP_DEFAULT_TIMEOUT: "30"
+      become: "{{ tool_installer_scope_become }}"
+      no_log: true
+  always:
+    - name: Remove temporary netrc file for authenticated pip index - {{ tool_installer_scope_name }}
+      ansible.builtin.file:
+        path: "{{ tool_installer_pip_netrc_file.path }}"
+        state: absent
+      become: "{{ tool_installer_scope_become }}"
+      when: tool_installer_pip_netrc_file.path is defined
